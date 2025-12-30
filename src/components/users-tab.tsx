@@ -5,6 +5,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Badge } from './ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './ui/dialog';
+import { UserDetailsScreen } from './user-details-screen';
 import {
   Search,
   Users,
@@ -21,6 +22,7 @@ import {
   Heart,
   ShieldCheck,
   Ban,
+  MessageCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useUsers, useRestaurantOwners, useReports } from '../lib/firebase-hooks';
@@ -74,6 +76,8 @@ export function UsersTab() {
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [selectedUser, setSelectedUser] = useState<PlatformUser | null>(null);
   const [isUserDialogOpen, setIsUserDialogOpen] = useState(false);
+  const [showUserDetailsScreen, setShowUserDetailsScreen] = useState(false);
+  const [userForDetailsScreen, setUserForDetailsScreen] = useState<PlatformUser | null>(null);
 
   const filteredUsers = platformUsers.filter(u => {
     const matchesSearch = u.name.toLowerCase().includes(userSearchQuery.toLowerCase()) ||
@@ -102,6 +106,17 @@ export function UsersTab() {
     setIsUserDialogOpen(false);
   };
 
+  const handleOpenUserDetailsScreen = (user: PlatformUser) => {
+    setUserForDetailsScreen(user);
+    setShowUserDetailsScreen(true);
+    setIsUserDialogOpen(false);
+  };
+
+  const handleCloseUserDetailsScreen = () => {
+    setShowUserDetailsScreen(false);
+    setUserForDetailsScreen(null);
+  };
+
   // Show loading state
   if (loading || restaurantOwnersLoading || reportsLoading) {
     return (
@@ -111,6 +126,26 @@ export function UsersTab() {
           <p className="text-slate-300">Loading users...</p>
         </div>
       </div>
+    );
+  }
+
+  // Show User Details Screen if active
+  if (showUserDetailsScreen && userForDetailsScreen) {
+    return (
+      <UserDetailsScreen 
+        user={userForDetailsScreen} 
+        onBack={handleCloseUserDetailsScreen}
+        restaurantOwners={restaurantOwners}
+        onViewRestaurant={(restaurantId) => {
+          // Find the restaurant and navigate to it
+          const restaurant = restaurantOwners.find(r => r.id === restaurantId);
+          if (restaurant) {
+            // Close user details and show message about navigating to restaurant
+            handleCloseUserDetailsScreen();
+            toast.info('Navigate to Restaurants tab to view restaurant details');
+          }
+        }}
+      />
     );
   }
 
@@ -247,7 +282,7 @@ export function UsersTab() {
                       className="bg-purple-600 hover:bg-purple-700"
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleOpenUserDialog(user);
+                        handleOpenUserDetailsScreen(user);
                       }}
                     >
                       <Eye className="w-4 h-4 mr-1" />
@@ -542,10 +577,10 @@ export function UsersTab() {
                   size="sm"
                   className="flex-1 bg-purple-600 hover:bg-purple-700 text-xs h-9"
                   onClick={() => {
-                    toast.info(`Sending message to ${selectedUser.name}`);
+                    handleOpenUserDetailsScreen(selectedUser);
                   }}
                 >
-                  <Mail className="w-3.5 h-3.5 mr-1.5" />
+                  <MessageCircle className="w-3.5 h-3.5 mr-1.5" />
                   Contact
                 </Button>
                 

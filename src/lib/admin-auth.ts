@@ -9,6 +9,7 @@ import {
 } from 'firebase/firestore';
 
 interface AdminUser {
+  id: string;  // Add id field (will be the email)
   email: string;
   name: string;
   role: string;
@@ -43,6 +44,7 @@ function convertToAdminUser(data: FirestoreAdminData): AdminUser {
   };
 
   return {
+    id: data.email,
     email: data.email,
     name: data.name,
     role: data.role,
@@ -149,6 +151,7 @@ export function useAdminAuth() {
       } else {
         // Create new admin user
         adminData = {
+          id: email,
           email: email,
           name: email.split('@')[0],
           role: 'admin',

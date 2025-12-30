@@ -1,17 +1,20 @@
+import { FirebaseSetupBanner } from './firebase-setup-banner';
+import { RestaurantEditScreen } from './restaurant-edit-screen';
+import { AdminMessagingScreen } from './admin-messaging-screen';
+import { UserDetailsScreen } from './user-details-screen';
+import { AdminManagement } from './admin-management';
+import { ReportDetailsDialog } from './report-details-dialog';
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Timestamp } from 'firebase/firestore';
 import { useRestaurants } from '../lib/firebase-hooks';
 import { useUsers } from '../lib/firebase-hooks';
-import { useRestaurantOwners } from '../lib/firebase-hooks';
+import { useRestaurantOwners, type RestaurantOwner } from '../lib/firebase-hooks';
 import { useReports } from '../lib/firebase-hooks';
 import { seedFirebase } from '../lib/seed-firebase';
 import { useAdminAuth } from '../lib/admin-auth';
 import { calculateAdminStats } from '../lib/admin-stats';
 import { UsersTab } from './users-tab';
-import { AdminManagement } from './admin-management';
-import { ReportDetailsDialog } from './report-details-dialog';
-import { FirebaseSetupBanner } from './firebase-setup-banner';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -70,13 +73,32 @@ interface Report {
   reportedAt: string;
 }
 
+interface PlatformUser {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  location: string;
+  status: 'active' | 'inactive' | 'suspended';
+  joinedDate: string;
+  totalReservations: number;
+  favoriteRestaurants: number;
+  reviewsWritten: number;
+  lastActive: string;
+  membershipTier: 'free' | 'premium' | 'elite';
+  totalSpent: number;
+  averageRating: number;
+  photoURL?: string;
+  username?: string;
+}
+
 export function AdminApp() {
   // Firebase hooks
   const { restaurants, loading: restaurantsLoading, error: restaurantsError } = useRestaurants();
   const { users, loading: usersLoading, error: usersError } = useUsers();
   const { restaurantOwners, loading: restaurantOwnersLoading, error: restaurantOwnersError } = useRestaurantOwners();
   const { reports, loading: reportsLoading, updateReport, error: reportsError } = useReports();
-  const { updateMasterPassword } = useAdminAuth();
+  const { updateMasterPassword, currentAdmin } = useAdminAuth();
   
   // UI state
   const [searchQuery, setSearchQuery] = useState('');
@@ -87,6 +109,8 @@ export function AdminApp() {
   const [isReportDialogOpen, setIsReportDialogOpen] = useState(false);
   const [isSeeding, setIsSeeding] = useState(false);
   const [showFirebaseSetup, setShowFirebaseSetup] = useState(true);
+  const [showRestaurantEditScreen, setShowRestaurantEditScreen] = useState(false);
+  const [restaurantForEditScreen, setRestaurantForEditScreen] = useState<RestaurantOwner | null>(null);
   const [settings, setSettings] = useState({
     emailNotifications: true,
     autoApprove: false,
@@ -98,6 +122,8 @@ export function AdminApp() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [showUserDetailsScreen, setShowUserDetailsScreen] = useState(false);
+  const [userForDetailsScreen, setUserForDetailsScreen] = useState<PlatformUser | null>(null);
 
   // Check if Firebase has connection errors
   const hasFirebaseError = restaurantsError || usersError || restaurantOwnersError || reportsError;
@@ -235,6 +261,54 @@ export function AdminApp() {
     );
   }
 
+  // Show Restaurant Edit Screen if active
+  if (showRestaurantEditScreen && restaurantForEditScreen) {
+    // Convert Firebase users to platform users for RestaurantEditScreen
+    const platformUsersForRestaurant = users.map(user => ({
+      id: user.id,
+      name: user.displayName || user.username,
+      email: user.email,
+    }));
+
+    return (
+      <RestaurantEditScreen 
+        restaurant={restaurantForEditScreen} 
+        onBack={() => setShowRestaurantEditScreen(false)}
+        platformUsers={platformUsersForRestaurant}
+        onViewUser={(userId) => {
+          // Find the user and show user details screen
+          const user = users.find(u => u.id === userId);
+          if (user) {
+            // We need to switch to the Users tab and open the user details
+            // For now, just close the restaurant screen
+            setShowRestaurantEditScreen(false);
+            toast.info('Navigate to Users tab to view user details');
+          }
+        }}
+      />
+    );
+  }
+
+  // Show User Details Screen if active
+  if (showUserDetailsScreen && userForDetailsScreen) {
+    return (
+      <UserDetailsScreen 
+        user={userForDetailsScreen} 
+        onBack={() => setShowUserDetailsScreen(false)}
+        restaurantOwners={restaurantOwners}
+        onViewRestaurant={(restaurantId) => {
+          // Find the restaurant and navigate to it
+          const restaurant = restaurantOwners.find(r => r.id === restaurantId);
+          if (restaurant) {
+            setShowUserDetailsScreen(false);
+            setRestaurantForEditScreen(restaurant);
+            setShowRestaurantEditScreen(true);
+          }
+        }}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-900">
       <div className="container mx-auto p-6 max-w-[1600px]">
@@ -261,7 +335,7 @@ export function AdminApp() {
         )}
 
         <Tabs defaultValue="overview" className="w-full">
-          <TabsList className="grid w-full grid-cols-5 bg-slate-800 mb-8">
+          <TabsList className="grid w-full grid-cols-6 bg-slate-800 mb-8">
             <TabsTrigger value="overview" className="data-[state=active]:bg-slate-700">
               <LayoutDashboard className="w-4 h-4 mr-2" />
               Overview
@@ -273,6 +347,10 @@ export function AdminApp() {
             <TabsTrigger value="restaurants" className="data-[state=active]:bg-slate-700">
               <Building2 className="w-4 h-4 mr-2" />
               Restaurants
+            </TabsTrigger>
+            <TabsTrigger value="messages" className="data-[state=active]:bg-slate-700">
+              <MessageSquare className="w-4 h-4 mr-2" />
+              Messages
             </TabsTrigger>
             <TabsTrigger value="reports" className="data-[state=active]:bg-slate-700">
               <FileWarning className="w-4 h-4 mr-2" />
@@ -351,7 +429,35 @@ export function AdminApp() {
                     users
                       .slice(0, 5)
                       .map((user) => (
-                        <div key={user.id} className="flex items-center justify-between p-3 bg-slate-700/50 rounded-lg">
+                        <div 
+                          key={user.id} 
+                          className="flex items-center justify-between p-3 bg-slate-700/50 rounded-lg cursor-pointer hover:bg-slate-700 transition-colors"
+                          onClick={() => {
+                            // Convert Firebase user to PlatformUser format
+                            const platformUser = {
+                              id: user.id,
+                              name: user.displayName || user.username,
+                              email: user.email,
+                              phone: user.phoneNumber || 'N/A',
+                              location: 'N/A', // TODO: Add location to users collection
+                              status: 'active' as const,
+                              joinedDate: user.createdAt instanceof Timestamp 
+                                ? user.createdAt.toDate().toISOString() 
+                                : (typeof user.createdAt === 'string' ? user.createdAt : new Date().toISOString()),
+                              totalReservations: user.stats?.totalReservations || 0,
+                              favoriteRestaurants: user.preferences?.favoriteRestaurants?.length || 0,
+                              reviewsWritten: 0, // TODO: Add to stats
+                              lastActive: user.updatedAt instanceof Timestamp
+                                ? user.updatedAt.toDate().toISOString()
+                                : (typeof user.updatedAt === 'string' ? user.updatedAt : new Date().toISOString()),
+                              membershipTier: 'free' as const, // TODO: Add membership tier to users
+                              totalSpent: 0, // TODO: Add to stats
+                              averageRating: 0, // TODO: Add to stats
+                            };
+                            setUserForDetailsScreen(platformUser);
+                            setShowUserDetailsScreen(true);
+                          }}
+                        >
                           <div className="flex items-center gap-3">
                             <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center">
                               <Users className="w-5 h-5 text-white" />
@@ -386,7 +492,14 @@ export function AdminApp() {
                     restaurantOwners
                       .slice(0, 5)
                       .map((owner) => (
-                        <div key={owner.id} className="flex items-center justify-between p-3 bg-slate-700/50 rounded-lg">
+                        <div 
+                          key={owner.id} 
+                          className="flex items-center justify-between p-3 bg-slate-700/50 rounded-lg cursor-pointer hover:bg-slate-700 transition-colors"
+                          onClick={() => {
+                            setRestaurantForEditScreen(owner);
+                            setShowRestaurantEditScreen(true);
+                          }}
+                        >
                           <div className="flex items-center gap-3">
                             <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-lg flex items-center justify-center">
                               <Building2 className="w-5 h-5 text-white" />
@@ -410,6 +523,16 @@ export function AdminApp() {
           {/* Users Tab */}
           <TabsContent value="users">
             <UsersTab />
+          </TabsContent>
+
+          {/* Messages Tab */}
+          <TabsContent value="messages">
+            {currentAdmin && (
+              <AdminMessagingScreen 
+                currentAdminId={currentAdmin.id} 
+                currentAdminEmail={currentAdmin.email}
+              />
+            )}
           </TabsContent>
 
           {/* Restaurants Tab */}
@@ -563,7 +686,10 @@ export function AdminApp() {
                     {/* Action Button */}
                     <Button 
                       className="w-full bg-blue-600 hover:bg-blue-700"
-                      onClick={() => handleOpenDetailsDialog(restaurant)}
+                      onClick={() => {
+                        setRestaurantForEditScreen(owner);
+                        setShowRestaurantEditScreen(true);
+                      }}
                     >
                       <Eye className="w-4 h-4 mr-2" />
                       View Details
@@ -998,8 +1124,8 @@ export function AdminApp() {
                   <Button 
                     className="flex-1 bg-blue-600 hover:bg-blue-700"
                     onClick={() => {
-                      toast.success(`Editing ${selectedRestaurant.name}`);
                       handleCloseDetailsDialog();
+                      setShowRestaurantEditScreen(true);
                     }}
                   >
                     Edit Restaurant

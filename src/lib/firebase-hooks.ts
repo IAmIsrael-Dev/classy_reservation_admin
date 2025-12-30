@@ -95,6 +95,43 @@ export interface Report {
   createdAt?: Timestamp;
 }
 
+export interface MenuItem {
+  id: string;
+  restaurantId: string;
+  type: 'dine-in' | 'takeout';
+  category: string;
+  name: string;
+  description: string;
+  price: number;
+  available: boolean;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+}
+
+export interface RestaurantStats {
+  totalReservations: number;
+  totalRevenue: number;
+  averageRating: number;
+  uniqueCustomers: number;
+  repeatCustomerRate: number;
+  totalReviews?: number;
+  monthlyGrowth?: number;
+  peakHours?: string;
+  averagePartySize?: number;
+  takeoutStats?: {
+    [key: string]: {
+      orders: number;
+      revenue: number;
+      averageOrder: number;
+    };
+  };
+  popularDishes?: Array<{
+    name: string;
+    orders: number;
+    revenue: number;
+  }>;
+}
+
 // Helper to convert Firestore doc to typed object
 const docToData = <T extends { id: string }>(doc: QueryDocumentSnapshot<DocumentData>): T => {
   const data = doc.data();
@@ -421,5 +458,156 @@ export function useReports() {
     addReport,
     updateReport,
     deleteReport,
+  };
+}
+
+// Restaurant Stats Hook
+export function useRestaurantStats(restaurantId: string) {
+  const [stats, setStats] = useState<RestaurantStats>({
+    totalReservations: 0,
+    totalRevenue: 0,
+    averageRating: 0,
+    uniqueCustomers: 0,
+    repeatCustomerRate: 0,
+  });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const q = query(
+      collection(db, 'restaurant-stats'),
+      orderBy('createdAt', 'desc')
+    );
+    
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const statsDoc = snapshot.docs.find(doc => doc.data().restaurantId === restaurantId);
+        if (statsDoc) {
+          const data = statsDoc.data();
+          setStats({
+            totalReservations: data.totalReservations || 0,
+            totalRevenue: data.totalRevenue || 0,
+            averageRating: data.averageRating || 0,
+            uniqueCustomers: data.uniqueCustomers || 0,
+            repeatCustomerRate: data.repeatCustomerRate || 0,
+          });
+        } else {
+          // Use default stats if none exist
+          setStats({
+            totalReservations: 0,
+            totalRevenue: 0,
+            averageRating: 0,
+            uniqueCustomers: 0,
+            repeatCustomerRate: 0,
+          });
+        }
+        setLoading(false);
+        setError(null);
+      },
+      (err) => {
+        if (err.code === 'permission-denied') {
+          console.error('Error fetching restaurant stats:', err);
+          setError('Firebase security rules are blocking access.');
+          setLoading(false);
+        } else if (err.code === 'unavailable' || err.message.includes('transport errored') || err.message.includes('WebChannel')) {
+          // Network/connection errors - silently ignore
+        } else {
+          console.error('Error fetching restaurant stats:', err);
+          setError(err.message);
+          setLoading(false);
+        }
+      }
+    );
+
+    return () => unsubscribe();
+  }, [restaurantId]);
+
+  return { stats, loading, error };
+}
+
+// Menu Items Hook
+export function useMenuItems(restaurantId: string) {
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const q = query(
+      collection(db, 'menu-items'),
+      orderBy('createdAt', 'desc')
+    );
+    
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const items = snapshot.docs
+          .map(doc => docToData<MenuItem>(doc))
+          .filter(item => item.restaurantId === restaurantId);
+        setMenuItems(items);
+        setLoading(false);
+        setError(null);
+      },
+      (err) => {
+        if (err.code === 'permission-denied') {
+          console.error('Error fetching menu items:', err);
+          setError('Firebase security rules are blocking access.');
+          setLoading(false);
+        } else if (err.code === 'unavailable' || err.message.includes('transport errored') || err.message.includes('WebChannel')) {
+          // Network/connection errors - silently ignore
+        } else {
+          console.error('Error fetching menu items:', err);
+          setError(err.message);
+          setLoading(false);
+        }
+      }
+    );
+
+    return () => unsubscribe();
+  }, [restaurantId]);
+
+  const addMenuItem = async (menuItem: Omit<MenuItem, 'id'>) => {
+    try {
+      await addDoc(collection(db, 'menu-items'), {
+        ...menuItem,
+        restaurantId,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    } catch (err) {
+      console.error('Error adding menu item:', err);
+      throw err;
+    }
+  };
+
+  const updateMenuItem = async (id: string, updates: Partial<MenuItem>) => {
+    try {
+      const menuItemRef = doc(db, 'menu-items', id);
+      await updateDoc(menuItemRef, {
+        ...updates,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (err) {
+      console.error('Error updating menu item:', err);
+      throw err;
+    }
+  };
+
+  const deleteMenuItem = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'menu-items', id));
+    } catch (err) {
+      console.error('Error deleting menu item:', err);
+      throw err;
+    }
+  };
+
+  return {
+    menuItems,
+    loading,
+    error,
+    addMenuItem,
+    updateMenuItem,
+    deleteMenuItem,
   };
 }
